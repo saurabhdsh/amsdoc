@@ -1,5 +1,5 @@
-# Same EC2 host as SEAL. SEAL publishes 80, 8080, and 3000.
-# This app publishes only 7000. Postgres and Redis stay on the Docker network.
+# Same EC2 host as SEAL. SEAL publishes 3000. SciNova's frontend is stopped so this app can use 5173.
+# Postgres and Redis stay on the Docker network.
 name: amsdoc
 
 services:
@@ -39,7 +39,7 @@ services:
       SECRET_KEY: local-compose-only-change-me
       DATABASE_URL: postgresql+psycopg://ams:ams@postgres:5432/ams
       REDIS_URL: redis://redis:6379/0
-      CORS_ORIGINS: http://52.0.130.62:7000,http://127.0.0.1:7000,http://localhost:7000
+      CORS_ORIGINS: http://52.0.130.62:5173,http://127.0.0.1:5173,http://localhost:5173
       OPENAI_API_KEY: ""
       BEDROCK_ENABLED: "true"
       AWS_REGION: us-east-1
@@ -70,7 +70,7 @@ services:
     container_name: amsdoc-web
     restart: unless-stopped
     ports:
-      - "7000:80"
+      - "5173:80"
     depends_on:
       api:
         condition: service_healthy
