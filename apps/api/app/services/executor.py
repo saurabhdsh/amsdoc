@@ -325,16 +325,22 @@ def _dispatch(db: Session, user: User, approval: HumanApproval, incident: Incide
         )
         return {"ok": True, "resolved": True, "message": "The local incident is resolved. It was not closed."}
     if action == "servicenow.add_work_note":
-        verification = (
-            db.query(VerificationResult).filter(VerificationResult.incident_id == incident.id).order_by(VerificationResult.created_at.desc()).first()
-        )
-        summary = verification.summary if verification else "No verification record was produced."
-        note = (
-            f"AMS approved remediation for {incident.number}. Verification recovered="
-            f"{bool(verification and verification.recovered)}. {summary} "
-            "This note was written by the action executor from stored evidence."
-        )
+        approved_note = str((step.get("params") or {}).get("note") or "").strip()
+        if approved_note:
+            note = approved_note
+        else:
+            verification = (
+                db.query(VerificationResult).filter(VerificationResult.incident_id == incident.id).order_by(VerificationResult.created_at.desc()).first()
+            )
+            summary = verification.summary if verification else "No verification record was produced."
+            note = (
+                f"AMS approved remediation for {incident.number}. Verification recovered="
+                f"{bool(verification and verification.recovered)}. {summary} "
+                "This note was written by the action executor from stored evidence."
+            )
         result = servicenow.post_work_note(db, user, incident, note)
+        if result.get("status") in {"skipped_read_only", "not_configured", "not_linked"}:
+            raise AppError("SERVICENOW_WRITE_SKIPPED", str(result.get("message") or "ServiceNow did not accept the work note."), 409)
         if result.get("status") == "confirmed":
             queue_event(
                 db,

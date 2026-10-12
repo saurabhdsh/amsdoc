@@ -57,9 +57,9 @@ export function Investigation() {
   useEffect(() => {
     if (!incidentId || !investigation.data || run.isPending) return;
     const needsRun = investigation.data.steps.length === 0;
-    const currentRecommendation = recommendation?.payload?.recommendation_version === 4;
+    const currentRecommendation = recommendation?.payload?.recommendation_version === 5;
     const needsRecommendation = investigation.data.steps.length > 0 && !currentRecommendation;
-    const key = needsRecommendation ? `${incidentId}:recommendation-v4` : incidentId;
+    const key = needsRecommendation ? `${incidentId}:recommendation-v5` : incidentId;
     if (!needsRun && !needsRecommendation) return;
     if (started.current.has(key)) return;
     started.current.add(key);
@@ -129,7 +129,7 @@ export function Investigation() {
                 <p className="mt-2 text-xs text-mist">{investigation.data.runs.at(-1)?.orchestrator ?? "No run"} · {investigation.data.incident.source_label}</p>
               </Card>
               {run.error ? <Notice tone="error">{errorMessage(run.error)}</Notice> : null}
-              <Recommendation key={incidentId} proposal={recommendation} pending={run.isPending && recommendation?.payload?.recommendation_version !== 4} incidentId={incidentId} />
+              <Recommendation key={incidentId} proposal={recommendation} pending={run.isPending && recommendation?.payload?.recommendation_version !== 5} incidentId={incidentId} />
               {hypotheses.map((item) => (
                 <Card key={item.id}>
                   <div className="flex items-center justify-between gap-3">
@@ -191,7 +191,7 @@ function Recommendation({ proposal, pending, incidentId }: { proposal?: Investig
       {payload.expected_outcome ? <p className="mt-2 text-xs leading-5 text-mist">{payload.expected_outcome}</p> : null}
       <p className="mt-3 text-xs leading-5 text-mist">
         {payload.model?.used ? `${payload.model.provider === "bedrock" ? "Bedrock" : "The model"} (${payload.model.model}) reviewed this draft. ` : ""}
-        This does not close the incident. A person decides whether to resolve it, and nothing is written to ServiceNow from this screen.
+        This screen does not write to ServiceNow. Approving the recommendation posts that text as a work note. The ticket is not closed.
       </p>
       {payload.disposition === "needs_approval" ? <Link className="mt-3 inline-block text-sm font-medium" to="/approvals">Open the approval</Link> : null}
     </Card>

@@ -318,7 +318,7 @@ def investigate(db: Session, user: User, incident_id: str) -> dict:
         )
         db.add(row)
         db.flush()
-        incident.state = "awaiting_approval"
+        incident.state = original_state if incident.source == "servicenow" else "awaiting_approval"
         queue_event(
             db,
             account_id=user.account_id,
@@ -376,7 +376,7 @@ def _apply_openai_draft(payload: dict, incident: Incident, analysis: dict, knowl
         "work_note_steps": logs.get("steps") or [],
     }
     draft = draft_recommendation(facts)
-    payload["recommendation_version"] = 4
+    payload["recommendation_version"] = 5
     payload["model"] = {
         "used": bool(draft.get("used")),
         "provider": draft.get("provider"),
@@ -452,7 +452,7 @@ def _proposal_payload(db: Session, user: User, incident: Incident, analysis: dic
         "disposition": "insufficient",
         "guidance": [],
         "resolution_notes": "",
-        "recommendation_version": 4,
+        "recommendation_version": 5,
     }
     if snapshot is None or case in {None, "unknown"}:
         return _operational_recommendation(base, incident, analysis, knowledge or [], original_state, db, log_summary)
@@ -586,7 +586,7 @@ def _operational_recommendation(base: dict, incident: Incident, analysis: dict, 
             "The user confirms the failure is gone.",
             "A person writes the close in ServiceNow.",
         ]
-        return base
+        return _attach_servicenow_note(base, incident)
     if logs.get("lines"):
         quoted = [
             f"Read the ServiceNow syslog line from {line.get('timestamp') or 'the recorded time'}: {str(line.get('message') or '')[:220]}"
@@ -599,7 +599,7 @@ def _operational_recommendation(base: dict, incident: Incident, analysis: dict, 
         base["guidance"] = ["Read the recorded resolution below.", "Ask the user whether the failure is still present.", *guidance[:2]]
         base["expected_outcome"] = "No new close is sent to ServiceNow."
         base["verification_plan"] = ["The user confirms the failure is gone.", "The recorded resolution matches the work that was done."]
-        return base
+        return _attach_servicenow_note(base, incident)
     if notes or articles or described:
         base["disposition"] = "advisory"
         base["summary"] = f"Do not close {incident.number} yet. Confirm these checks with the user. A person may resolve it only after that confirmation."
@@ -610,7 +610,7 @@ def _operational_recommendation(base: dict, incident: Incident, analysis: dict, 
             "A person writes the close notes in ServiceNow.",
         ]
         base["guidance"] = guidance
-        return base
+        return _attach_servicenow_note(base, incident)
     base["disposition"] = "insufficient"
     base["summary"] = f"There is not enough evidence to recommend closing {incident.number}."
     base["guidance"] = guidance
@@ -618,6 +618,25 @@ def _operational_recommendation(base: dict, incident: Incident, analysis: dict, 
     base["verification_plan"] = ["Do not mark the incident resolved from this investigation alone."]
     if analysis.get("summary"):
         base["guidance"] = guidance
+    return _attach_servicenow_note(base, incident)
+
+
+def _attach_servicenow_note(base: dict, incident: Incident) -> dict:
+    """Ask a person to approve posting the recommendation as a ServiceNow work note."""
+    if incident.source != "servicenow" or not incident.external_sys_id:
+        return base
+    lines = [str(base.get("summary") or "").strip()]
+    lines.extend(str(item).strip() for item in (base.get("guidance") or []) if str(item).strip())
+    body = " ".join(line for line in lines if line)[:3200]
+    if not body:
+        return base
+    number = incident.external_number or incident.number
+    note = f"AMS recommendation for {number}. {body} A person approved this note. The incident was not closed in ServiceNow."
+    base["disposition"] = "needs_approval"
+    base["expected_outcome"] = f"After approval, this text is posted as a work note on {number}. ServiceNow state and close notes stay unchanged."
+    base["steps"] = [
+        _step("servicenow", "servicenow.add_work_note", "incident", incident.id, incident.environment, {"note": note[:3900]}),
+    ]
     return base
 
 
