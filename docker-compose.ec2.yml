@@ -1,0 +1,85 @@
+# Same EC2 host as SEAL. SEAL publishes 80, 8080, and 3000.
+# This app publishes only 7000. Postgres and Redis stay on the Docker network.
+name: amsdoc
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: amsdoc-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ams
+      POSTGRES_PASSWORD: ams
+      POSTGRES_DB: ams
+    volumes:
+      - amsdoc_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ams -d ams"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - amsdoc
+
+  redis:
+    image: redis:7-alpine
+    container_name: amsdoc-redis
+    restart: unless-stopped
+    networks:
+      - amsdoc
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.api
+    container_name: amsdoc-api
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: local
+      SECRET_KEY: local-compose-only-change-me
+      DATABASE_URL: postgresql+psycopg://ams:ams@postgres:5432/ams
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: http://52.0.130.62:7000,http://127.0.0.1:7000,http://localhost:7000
+      OPENAI_API_KEY: ""
+      BEDROCK_ENABLED: "true"
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      BEDROCK_MODEL_ID: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 40s
+    networks:
+      - amsdoc
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.web
+    container_name: amsdoc-web
+    restart: unless-stopped
+    ports:
+      - "7000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - amsdoc
+
+volumes:
+  amsdoc_pg:
+
+networks:
+  amsdoc:
+    name: amsdoc
