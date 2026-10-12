@@ -75,8 +75,13 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 
 export const inputClass = "w-full rounded-lg border border-[#e8e8ed] bg-white px-3 py-2.5 text-[14px] text-[#1d1d1f] outline-none transition focus:border-[#1d1d1f]";
 
-export function Notice({ children, tone = "info" }: { children: ReactNode; tone?: "info" | "warn" | "error" }) {
-  const styles = { info: "border-teal/20 bg-teal-50 text-teal-950", warn: "border-amber-200 bg-amber-50 text-amber-950", error: "border-rose-200 bg-rose-50 text-rose-900" }[tone];
+export function Notice({ children, tone = "info" }: { children: ReactNode; tone?: "info" | "ok" | "warn" | "error" }) {
+  const styles = {
+    info: "border-[#e8e8ed] bg-[#f5f5f7] text-[#1d1d1f]",
+    ok: "border-[#1d1d1f] bg-[#f5f5f7] text-[#1d1d1f]",
+    warn: "border-[#e8e8ed] bg-white text-[#1d1d1f]",
+    error: "border-[#1d1d1f] bg-[#1d1d1f] text-white",
+  }[tone];
   return <div className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${styles}`}>{children}</div>;
 }
 

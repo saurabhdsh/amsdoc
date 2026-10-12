@@ -33,6 +33,7 @@ export function Approvals() {
   const [history, setHistory] = useState("");
   const [date, setDate] = useState("");
   const [participant, setParticipant] = useState("");
+  const [notice, setNotice] = useState("");
   const list = useQuery({ queryKey: ["approvals"], queryFn: () => api<{ items: Approval[] }>("/approvals") });
   const [selected, setSelected] = useState<string | null>(null);
   const current = list.data?.items.find((item) => item.id === selected) ?? list.data?.items[0];
@@ -48,11 +49,31 @@ export function Approvals() {
         body: JSON.stringify({ decision, comment, modifications: Object.keys(modifications).length ? modifications : null }),
       });
     },
-    onSuccess: () => client.invalidateQueries({ queryKey: ["approvals"] }),
+    onMutate: () => setNotice(""),
+    onSuccess: (_result, decision) => {
+      const number = current?.incident?.number;
+      const messages: Record<string, string> = {
+        approve: number ? `Approved ${number}. Execute the action when you are ready.` : "Approved. Execute the action when you are ready.",
+        reject: number ? `Rejected ${number}.` : "Rejected.",
+        modify: "Sent back for changes.",
+        investigate: "Sent back for investigation.",
+        escalate: "Escalated.",
+      };
+      setNotice(messages[decision] || "Decision saved.");
+      void client.invalidateQueries({ queryKey: ["approvals"] });
+    },
   });
   const execute = useMutation({
-    mutationFn: () => api(`/actions/${current?.id}/execute`, { method: "POST", idempotent: true }),
-    onSuccess: () => {
+    mutationFn: () => api<{ status?: string; results?: Array<{ action?: string; status?: string; message?: string }> }>(`/actions/${current?.id}/execute`, { method: "POST", idempotent: true }),
+    onMutate: () => setNotice(""),
+    onSuccess: (result) => {
+      const note = result.results?.find((item) => item.action === "servicenow.add_work_note");
+      const number = current?.incident?.number;
+      if (note?.status === "confirmed") setNotice(number ? `Work note posted to ${number} in ServiceNow.` : "Work note posted to ServiceNow.");
+      else if (note?.status === "accepted_unverified") setNotice("Work note sent to ServiceNow. Open the incident and confirm it in Work notes.");
+      else if (result.status === "waiting") setNotice("Execution is waiting for the next step.");
+      else if (result.status === "completed") setNotice(number ? `Approved action executed for ${number}.` : "Approved action executed.");
+      else setNotice("Approved action finished.");
       void client.invalidateQueries({ queryKey: ["approvals"] });
       void client.invalidateQueries({ queryKey: ["documents"] });
     },
@@ -65,7 +86,7 @@ export function Approvals() {
         <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
           <Card className="space-y-2">
             {(list.data?.items ?? []).map((item) => (
-              <button key={item.id} className="block w-full rounded-xl border border-line px-3 py-2 text-left text-sm" onClick={() => setSelected(item.id)}>
+              <button key={item.id} className="block w-full rounded-xl border border-line px-3 py-2 text-left text-sm" onClick={() => { setSelected(item.id); setNotice(""); }}>
                 <span className="font-medium">{item.incident?.number}</span>
                 <span className="mt-1 block text-xs text-mist">{titleCase(item.status)}</span>
               </button>
@@ -104,15 +125,15 @@ export function Approvals() {
                   <Field label="Confirmed planned effective date"><input className={inputClass} placeholder="YYYY-MM-DD" value={date} onChange={(event) => setDate(event.target.value)} /></Field>
                   <div className="flex flex-wrap gap-2 md:col-span-2">
                     {["approve", "reject", "modify", "investigate", "escalate"].map((decision) => (
-                      <Button key={decision} kind={decision === "approve" ? "teal" : decision === "reject" ? "danger" : "quiet"} onClick={() => decide.mutate(decision)}>{titleCase(decision)}</Button>
+                      <Button key={decision} disabled={decide.isPending} kind={decision === "approve" ? "teal" : decision === "reject" ? "danger" : "quiet"} onClick={() => decide.mutate(decision)}>{decide.isPending && decide.variables === decision ? `${titleCase(decision)}…` : titleCase(decision)}</Button>
                     ))}
                   </div>
                 </div>
               ) : null}
-              {current.status === "approved" && can(user, "action.execute") ? <Button onClick={() => execute.mutate()}>Execute approved action</Button> : null}
+              {current.status === "approved" && can(user, "action.execute") ? <Button disabled={execute.isPending} onClick={() => execute.mutate()}>{execute.isPending ? "Executing approved action…" : "Execute approved action"}</Button> : null}
               {current.progress?.state ? <p className="text-xs text-mist">Execution progress: {current.progress.state}</p> : null}
+              {notice ? <Notice tone="ok">{notice}</Notice> : null}
               {decide.error || execute.error ? <Notice tone="error">{errorMessage(decide.error || execute.error)}</Notice> : null}
-              {execute.data ? <pre className="overflow-auto rounded-xl bg-paper p-3 text-xs">{JSON.stringify(execute.data, null, 2)}</pre> : null}
             </Card>
           ) : null}
         </div>

@@ -13,16 +13,34 @@ export function Connectors() {
   const list = useQuery({ queryKey: ["connectors"], queryFn: () => api<{ items: Connector[] }>("/connectors") });
   const snow = useQuery({ queryKey: ["snow"], queryFn: () => api<Snow>("/connectors/servicenow") });
   const [form, setForm] = useState({ instance_url: "", username: "", password: "", assignment_group: "", write_mode: "read_only", historical_days: 30, sync_frequency_seconds: 300, auto_sync: false, priorities: [] as string[] });
+  const [notice, setNotice] = useState("");
   useEffect(() => {
     if (!snow.data) return;
     setForm((current) => ({ ...current, instance_url: snow.data.instance_url || "", username: snow.data.username || "", write_mode: snow.data.write_mode, assignment_group: snow.data.assignment_group || "", priorities: snow.data.priorities || [], historical_days: snow.data.historical_days, sync_frequency_seconds: snow.data.sync_frequency_seconds, auto_sync: snow.data.auto_sync }));
   }, [snow.data]);
   const save = useMutation({
     mutationFn: () => api("/connectors/servicenow", { method: "PUT", body: JSON.stringify({ ...form, password: form.password || null }) }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["snow"] }),
+    onMutate: () => setNotice(""),
+    onSuccess: () => {
+      setNotice("Configuration saved.");
+      setForm((current) => ({ ...current, password: "" }));
+      void client.invalidateQueries({ queryKey: ["snow"] });
+      void client.invalidateQueries({ queryKey: ["connectors"] });
+    },
   });
-  const test = useMutation({ mutationFn: () => api("/connectors/servicenow/test", { method: "POST" }) });
-  const sync = useMutation({ mutationFn: () => api("/connectors/servicenow/sync", { method: "POST" }) });
+  const test = useMutation({
+    mutationFn: () => api<{ ok?: boolean; message?: string }>("/connectors/servicenow/test", { method: "POST" }),
+    onMutate: () => setNotice(""),
+    onSuccess: (result) => setNotice(result.ok ? "Connection succeeded." : result.message || "Connection test finished."),
+  });
+  const sync = useMutation({
+    mutationFn: () => api<{ created?: number; updated?: number; knowledge_upserted?: number }>("/connectors/servicenow/sync", { method: "POST" }),
+    onMutate: () => setNotice(""),
+    onSuccess: (result) => {
+      setNotice(`Sync finished. ${result.created ?? 0} incidents created, ${result.updated ?? 0} updated, ${result.knowledge_upserted ?? 0} knowledge articles saved.`);
+      void client.invalidateQueries({ queryKey: ["incidents"] });
+    },
+  });
 
   return (
     <Page title="Application Connectors" lede="A connector reports not configured until credentials exist. The platform does not invent a successful external response.">
@@ -57,14 +75,14 @@ export function Connectors() {
             </Field>
             <Field label="Historical days"><input type="number" className={inputClass} value={form.historical_days} onChange={(event) => setForm({ ...form, historical_days: Number(event.target.value) })} /></Field>
             <div className="flex flex-wrap gap-2 md:col-span-2">
-              <Button type="submit">Save configuration</Button>
-              <Button kind="quiet" onClick={() => test.mutate()}>Test connection</Button>
-              <Button kind="quiet" onClick={() => sync.mutate()}>Sync incidents and knowledge</Button>
+              <Button type="submit" disabled={save.isPending}>{save.isPending ? "Saving configuration…" : "Save configuration"}</Button>
+              <Button kind="quiet" disabled={test.isPending} onClick={() => test.mutate()}>{test.isPending ? "Testing connection…" : "Test connection"}</Button>
+              <Button kind="quiet" disabled={sync.isPending} onClick={() => sync.mutate()}>{sync.isPending ? "Syncing…" : "Sync incidents and knowledge"}</Button>
             </div>
           </form>
         ) : <p className="mt-3 text-sm text-mist">Your role can view connector status. Configuration requires an administrator.</p>}
+        {notice ? <div className="mt-3"><Notice tone="ok">{notice}</Notice></div> : null}
         {save.error || test.error || sync.error ? <div className="mt-3"><Notice tone="error">{errorMessage(save.error || test.error || sync.error)}</Notice></div> : null}
-        {test.data || sync.data ? <pre className="mt-3 overflow-auto rounded-xl bg-paper p-3 text-xs">{JSON.stringify(test.data || sync.data, null, 2)}</pre> : null}
       </Card>
     </Page>
   );
