@@ -76,6 +76,7 @@ export function Approvals() {
       else setNotice("Approved action finished.");
       void client.invalidateQueries({ queryKey: ["approvals"] });
       void client.invalidateQueries({ queryKey: ["documents"] });
+      void client.invalidateQueries({ queryKey: ["investigation"] });
     },
   });
 

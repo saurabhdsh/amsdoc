@@ -341,6 +341,10 @@ def _dispatch(db: Session, user: User, approval: HumanApproval, incident: Incide
         result = servicenow.post_work_note(db, user, incident, note)
         if result.get("status") in {"skipped_read_only", "not_configured", "not_linked"}:
             raise AppError("SERVICENOW_WRITE_SKIPPED", str(result.get("message") or "ServiceNow did not accept the work note."), 409)
+        if result.get("status") in {"confirmed", "accepted_unverified"}:
+            proposal = db.get(RemediationProposal, approval.proposal_id)
+            if proposal is not None:
+                proposal.status = "work_note_posted"
         if result.get("status") == "confirmed":
             queue_event(
                 db,

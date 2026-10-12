@@ -34,6 +34,7 @@ type InvestigationPayload = {
   evidence: Array<{ id: string; run_id: string | null; kind: string; title: string; excerpt: string; source: string }>;
   hypotheses: Array<{ id: string; run_id: string | null; statement: string; status: string; confidence: number; supporting: string[]; contradicting: string[] }>;
   proposals: Array<{ id: string; run_id: string | null; summary: string; risk: string; status: string; payload: RecommendationPayload }>;
+  executions: Array<{ id: string; action: string; status: string; result?: { status?: string } }>;
   verifications: Array<{ id: string; recovered: boolean; summary: string }>;
 };
 
@@ -54,6 +55,9 @@ export function Investigation() {
   });
   const latestRunId = investigation.data?.runs.at(-1)?.id;
   const recommendation = (investigation.data?.proposals ?? []).find((item) => item.run_id === latestRunId);
+  const workNotePosted = (investigation.data?.executions ?? []).some(
+    (item) => item.action === "servicenow.add_work_note" && item.status === "succeeded" && (item.result?.status === "confirmed" || item.result?.status === "accepted_unverified"),
+  );
   useEffect(() => {
     if (!incidentId || !investigation.data || run.isPending) return;
     const needsRun = investigation.data.steps.length === 0;
@@ -129,7 +133,7 @@ export function Investigation() {
                 <p className="mt-2 text-xs text-mist">{investigation.data.runs.at(-1)?.orchestrator ?? "No run"} · {investigation.data.incident.source_label}</p>
               </Card>
               {run.error ? <Notice tone="error">{errorMessage(run.error)}</Notice> : null}
-              <Recommendation key={incidentId} proposal={recommendation} pending={run.isPending && recommendation?.payload?.recommendation_version !== 5} incidentId={incidentId} />
+              <Recommendation key={incidentId} proposal={recommendation} pending={run.isPending && recommendation?.payload?.recommendation_version !== 5} incidentId={incidentId} workNotePosted={workNotePosted} />
               {hypotheses.map((item) => (
                 <Card key={item.id}>
                   <div className="flex items-center justify-between gap-3">
@@ -154,7 +158,7 @@ export function Investigation() {
   );
 }
 
-function Recommendation({ proposal, pending, incidentId }: { proposal?: InvestigationPayload["proposals"][number]; pending: boolean; incidentId: string }) {
+function Recommendation({ proposal, pending, incidentId, workNotePosted }: { proposal?: InvestigationPayload["proposals"][number]; pending: boolean; incidentId: string; workNotePosted: boolean }) {
   const payload = proposal?.payload;
   if (pending || !payload?.disposition) {
     return (
@@ -164,8 +168,8 @@ function Recommendation({ proposal, pending, incidentId }: { proposal?: Investig
       </Card>
     );
   }
-  const label = payload.disposition === "needs_approval" ? "Needs approval" : payload.disposition === "advisory" ? "Advisory" : "Not enough to close";
-  const tone = payload.disposition === "needs_approval" ? "navy" : payload.disposition === "advisory" ? "amber" : "rose";
+  const label = workNotePosted ? "Work note posted" : payload.disposition === "needs_approval" ? "Needs approval" : payload.disposition === "advisory" ? "Advisory" : "Not enough to close";
+  const tone = workNotePosted || payload.disposition === "needs_approval" ? "navy" : payload.disposition === "advisory" ? "amber" : "rose";
   const guidance = payload.guidance ?? [];
   const checks = payload.verification_plan ?? [];
   return (
@@ -191,9 +195,11 @@ function Recommendation({ proposal, pending, incidentId }: { proposal?: Investig
       {payload.expected_outcome ? <p className="mt-2 text-xs leading-5 text-mist">{payload.expected_outcome}</p> : null}
       <p className="mt-3 text-xs leading-5 text-mist">
         {payload.model?.used ? `${payload.model.provider === "bedrock" ? "Bedrock" : "The model"} (${payload.model.model}) reviewed this draft. ` : ""}
-        This screen does not write to ServiceNow. Approving the recommendation posts that text as a work note. The ticket is not closed.
+        {workNotePosted
+          ? "The approved recommendation was posted as a work note. The ServiceNow state was not changed."
+          : "This screen does not write to ServiceNow. Approving the recommendation posts that text as a work note. The ticket is not closed."}
       </p>
-      {payload.disposition === "needs_approval" ? <Link className="mt-3 inline-block text-sm font-medium" to="/approvals">Open the approval</Link> : null}
+      {!workNotePosted && payload.disposition === "needs_approval" ? <Link className="mt-3 inline-block text-sm font-medium" to="/approvals">Open the approval</Link> : null}
     </Card>
   );
 }
