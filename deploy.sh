@@ -2,7 +2,7 @@
 # Run this on the SEAL EC2 host (52.0.130.62). Bedrock uses the instance role.
 set -euo pipefail
 
-echo "=== AMSDoC — EC2 deploy (port 5173, Bedrock) ==="
+echo "=== AMSDoC — EC2 deploy (port 7000, Bedrock) ==="
 
 if ! command -v docker &>/dev/null; then
   echo "Installing Docker..."
@@ -24,6 +24,6 @@ echo "Building and starting containers..."
 "${COMPOSE[@]}" up -d --build
 "${COMPOSE[@]}" ps
 echo ""
-echo "AMSDoC: http://52.0.130.62:5173"
+echo "AMSDoC: http://52.0.130.62:7000"
 echo "Login:  Yugal / admin123"
 echo "Bedrock: us-east-1 / us.anthropic.claude-sonnet-4-5-20250929-v1:0"
